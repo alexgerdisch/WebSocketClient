@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Desktop Audio Capture Client</title>
+</head>
+<body>
+
+<button id="startCapture">Start Audio Capture</button>
+<button id="stopCapture" disabled>Stop Audio Capture</button>
+<p id="transcription"></p>
+
+<script>
+    const startButton = document.getElementById('startCapture');
+    const stopButton = document.getElementById('stopCapture');
+    const transcriptionText = document.getElementById('transcription');
+    
+    let mediaRecorder;
+    let audioChunks = [];
+    const ws = new WebSocket('ws://localhost:8080/');
+
+    ws.onopen = () => {
+        console.log('Connected to the WebSocket Server');
+    };
+
+    ws.onmessage = (event) => {
+        transcriptionText.innerText = event.data;
+    };
+
+    startButton.addEventListener('click', () => {
+        navigator.mediaDevices.getDisplayMedia({ audio: true, video: true })
+            .then(stream => {
+                // Filter out video tracks to only work with audio
+                const audioStream = new MediaStream(stream.getAudioTracks());
+
+                mediaRecorder = new MediaRecorder(audioStream);
+                startButton.disabled = true;
+                stopButton.disabled = false;
+
+                mediaRecorder.ondataavailable = event => {
+                    audioChunks.push(event.data);
+                };
+
+                mediaRecorder.onstop = () => {
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                    sendAudioToServer(audioBlob);
+                };
+
+                mediaRecorder.start();
+            })
+            .catch(error => {
+                console.error('Error accessing desktop audio:', error);
+            });
+    });
+
+    stopButton.addEventListener('click', () => {
+        if (mediaRecorder) {
+            mediaRecorder.stop();
+            startButton.disabled = false;
+            stopButton.disabled = true;
+        }
+    });
+
+    function sendAudioToServer(audioBlob) {
+        const reader = new FileReader();
+
+        reader.readAsArrayBuffer(audioBlob);
+        reader.onloadend = () => {
+            const audioBuffer = reader.result;
+            ws.send(audioBuffer);
+        };
+    }
+</script>
+</body>
+</html>
